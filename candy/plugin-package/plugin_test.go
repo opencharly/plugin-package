@@ -50,6 +50,9 @@ func (c *fakeCC) Box() string                                               { re
 func (c *fakeCC) Instance() string                                          { return "" }
 func (c *fakeCC) Distros() []string                                         { return nil }
 func (c *fakeCC) AddBackground(int)                                         {}
+func (c *fakeCC) InvokeProvider(context.Context, string, string, string, []byte, []byte) ([]byte, error) {
+	return nil, nil
+}
 
 // TestPackageVerb: installed-present, version match, and absent-as-expected paths. Relocated
 // from charly/checkrun_verbs_test.go's TestRunner_Package (#55 decoupling cone, Batch D) — the
@@ -135,18 +138,22 @@ func TestPackageVerb_RenderProvisionScript(t *testing.T) {
 	}
 }
 
-// TestPackageVerb_StepProvider: the TYPED-STEP role names the SystemPackages step kind and
-// decodes plugin_input (package + cross-distro package_map) into the StepDescriptor the
-// host materializer consumes. Relocated from charly/plugin_package_relocated_test.go's
-// TestRelocatedPackageVerb_DispatchesViaKit (the step-role behavior half; the dispatch
-// wiring + the materializer stay in charly).
+// TestPackageVerb_StepProvider: the TYPED-STEP role names the internal SystemPackages IR
+// kind and MATERIALIZES the real *spec.SystemPackagesStep from plugin_input + the host-
+// resolved ctx scalars (pkgFormat → Format, distroTags → the cross-distro package name). The
+// candy owns the materialization (C7); the load-bearing Reverse() stays in package main.
 func TestPackageVerb_StepProvider(t *testing.T) {
-	got := verb{}.StepKind()
-	if got != kit.StepKindSystemPackages {
-		t.Fatalf("StepKind = %v, want StepKindSystemPackages", got)
+	if got := (verb{}).StepKind(); got != spec.StepKindSystemPackages {
+		t.Fatalf("StepKind = %v, want %v", got, spec.StepKindSystemPackages)
 	}
-	desc := verb{}.ConstructStepDescriptor(&spec.Op{PluginInput: map[string]any{"package": "openssh", "package_map": map[string]any{"fedora": "openssh-server"}}})
-	if desc.SystemPackages == nil || desc.SystemPackages.Package != "openssh" || desc.SystemPackages.PackageMap["fedora"] != "openssh-server" {
-		t.Fatalf("StepDescriptor = %+v, want Package=openssh PackageMap[fedora]=openssh-server", desc)
+	step := (verb{}).MaterializeStep(
+		&spec.Op{PluginInput: map[string]any{"package": "openssh", "package_map": map[string]any{"fedora": "openssh-server"}}},
+		"", "net", "rpm", []string{"fedora:43", "fedora"})
+	sps, ok := step.(*spec.SystemPackagesStep)
+	if !ok {
+		t.Fatalf("MaterializeStep returned %T, want *spec.SystemPackagesStep", step)
+	}
+	if sps.Format != "rpm" || sps.Phase != spec.PhaseInstall || len(sps.Packages) != 1 || sps.Packages[0] != "openssh-server" {
+		t.Fatalf("step = %+v, want Format=rpm Phase=Install Packages=[openssh-server] (cross-distro map applied)", sps)
 	}
 }

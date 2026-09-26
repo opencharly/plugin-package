@@ -3,9 +3,10 @@
 // roles on the sdk/kit contract:
 //   - CheckVerbProvider: rpm -q / dpkg -s / pacman -Q probe + optional version match.
 //   - ProvisionActor (runtime act): render the dnf/apt-get/pacman install shell.
-//   - StepProvider (build/deploy act): lower into a SystemPackagesStep (the host
-//     materializer resolves the format + cross-distro name, keeps Reverse() in package
-//     main). Relocated out of charly's module (formerly charly/plugin/builtins/package +
+//   - StepProvider (build/deploy act): MATERIALIZE the SystemPackagesStep itself (format +
+//     cross-distro name; the load-bearing Reverse() stays in package main). The candy owns
+//     both the kind mapping and the materialization; core holds no per-kind switch (C7).
+//     Relocated out of charly's module (formerly charly/plugin/builtins/package +
 //     charly/plugin_verb_package.go); COMPILED-IN-ONLY. The cross-distro name resolver is
 //     the shared kit.ResolvePackageName (R3).
 package pkgverb
@@ -116,14 +117,22 @@ func (verb) RenderProvisionScript(op *spec.Op, distros []string) (string, bool) 
 		`else echo "no supported package manager" >&2; exit 1; fi`, name), true
 }
 
-// StepKind names the typed install-plan step package's build/deploy act lowers into.
-func (verb) StepKind() kit.StepKindName { return kit.StepKindSystemPackages }
+// StepKind names the typed install-plan step package's build/deploy act lowers into — the
+// internal InstallPlan IR kind, returned directly (C7: the candy owns the kind mapping; core
+// holds no per-kind switch).
+func (verb) StepKind() spec.StepKind { return spec.StepKindSystemPackages }
 
-// ConstructStepDescriptor (do:act build/deploy) returns the authored package name + map;
-// the host materializer resolves the cross-distro name + image format + builds the
-// SystemPackagesStep (Repos/Copr/Options come from the top-level package cascade, not here).
-func (verb) ConstructStepDescriptor(op *spec.Op) kit.StepDescriptor {
+// MaterializeStep (do:act build/deploy) builds the real SystemPackagesStep: the image package
+// format + PhaseInstall + the cross-distro-resolved package name. Repos/Copr/Options come from
+// the top-level package cascade (compileSystemPackageSteps), NOT a per-op run: {package} step —
+// matching the pre-extraction lowering. package consumes pkgFormat + distroTags of the four ctx
+// scalars.
+func (verb) MaterializeStep(op *spec.Op, _, _ string, pkgFormat string, distroTags []string) spec.InstallStep {
 	var in params.PackageInput
 	kit.DecodeInput(op.PluginInput, &in)
-	return kit.StepDescriptor{SystemPackages: &kit.SystemPackagesDesc{Package: in.Package, PackageMap: in.PackageMap}}
+	return &spec.SystemPackagesStep{
+		Format:   pkgFormat,
+		Phase:    spec.PhaseInstall,
+		Packages: []string{kit.ResolvePackageName(in.Package, in.PackageMap, distroTags)},
+	}
 }

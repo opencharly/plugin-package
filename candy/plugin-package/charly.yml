@@ -1,7 +1,5 @@
-version: 2026.232.0520
 plugin-package:
     candy:
-        version: 2026.176.3000
         description: |-
             The `package` TYPED-STEP state-provision verb relocated into a candy.
             CHECK: rpm -q / dpkg -s / pacman -Q probe + optional version match via the

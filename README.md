@@ -21,8 +21,13 @@ The plugin is a host-coupled verb on the SDK/kit contract (`CheckVerbProvider` +
 
 ## How to use it
 
-Compose the plugin candy in a box or check bed's `candy:` list, then author the
-verb in a plan:
+Compose the plugin candy in a box or check bed's `candy:` list:
+
+```yaml
+- '@github.com/opencharly/plugin-package/candy/plugin-package:<tag>'
+```
+
+Then author the verb in a plan:
 
 ```yaml
 - check: bash is installed
